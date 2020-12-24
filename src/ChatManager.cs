@@ -16,6 +16,7 @@ namespace Oxide.Plugins
         private void Init()
         {
             permission.RegisterPermission("ChatManager.stats", this);
+            permission.RegisterPermission("ChatManager.ban", this);
         }
         
         #endregion
@@ -154,6 +155,48 @@ namespace Oxide.Plugins
             }
             return "";
         }
+
+        private string IsMutedOrBanned(string playerid)
+        {
+            var bannedStatus = _blockedLog[playerid, "banned"];
+            if (bannedStatus == null)
+            {
+                Puts("Player not banned");
+                return "";
+            }
+
+            if (bannedStatus.ToString() == "True")
+            {
+                return "Banned";
+            }
+               
+            return "";
+        }
+
+        private object GetValidPlayer(string[] args, IPlayer player)
+        {
+            if (args.Length == 0)
+            {
+                player.Reply($"{Prefix} You must specify a player.");
+                return false;
+            }
+            
+            IPlayer target = covalence.Players.FindPlayer(args[0]);
+
+            if (target == null)
+            {
+                player.Reply($"{Prefix} Could not find the specified player.");
+                return false;
+            }
+
+            return target;
+        }
+
+        private void ReplyBlockedWithReason(IPlayer player, string reason)
+        {
+            Puts($"Blocked chat from player: \"{player.Name}\" with reason: \"{reason}\"");
+            player.Reply($"<color={Config["BlockMessageColor"]}>Your message has been blocked with reason: {reason}</color>");
+        }
         
         #endregion
 
@@ -161,12 +204,18 @@ namespace Oxide.Plugins
         {
             if (IsCommand($"{message}")) return null;
 
+            var isMutedOrBanned = IsMutedOrBanned(player.Id);
+
             var isAllowed = IsAllowedText(message, player.Id);
 
             if (isAllowed != "")
             {
-                Puts($"Blocked chat from player: \"{player.Name}\" with reason: \"{isAllowed}\"");
-                player.Reply($"<color={Config["BlockMessageColor"]}>Your message has been blocked with reason: {isAllowed}</color>");
+                ReplyBlockedWithReason(player, isAllowed);
+                return false;
+            }
+            if (isMutedOrBanned != "")
+            {
+                ReplyBlockedWithReason(player, isMutedOrBanned);
                 return false;
             }
 
@@ -176,30 +225,58 @@ namespace Oxide.Plugins
         
         #region commands
 
+        [Command("cm.ban"), Permission("ChatManager.ban")]
+        private void BanPlayerCommand(IPlayer player, string command, string[] args)
+        {
+            var iPlayerObj = GetValidPlayer(args, player);
+            if (iPlayerObj is bool) return;
+            var target = (IPlayer) iPlayerObj;
+            
+            _blockedLog[player.Id, "banned"] = true;
+            _blockedLog.Save();
+            
+            player.Reply($"{Prefix} Player: <color={Config["BlockMessageColor"]}>{target.Name}</color> - Has been banned from the chat");
+        }
+
+        [Command("cm.unban"), Permission("ChatManager.ban")]
+        private void UnbanPlayerCommand(IPlayer player, string command, string[] args)
+        {
+            var iPlayerObj = GetValidPlayer(args, player);
+            if (iPlayerObj is bool) return;
+            var target = (IPlayer) iPlayerObj;
+
+            _blockedLog[player.Id, "banned"] = false;
+            _blockedLog.Save();
+            
+            player.Reply($"{Prefix} Player: <color=#32CD32>{target.Name}</color> - Has been unbanned from the chat");
+        }
+        
         [Command("cm.stats"), Permission("ChatManager.stats")]
         private void ViewPlayerStatsCommand(IPlayer player, string command, string[] args)
         {
-            if (args.Length == 0)
-            {
-                player.Reply($"{Prefix} You must specify a player.");
-                return;
-            }
-            
-            IPlayer target = covalence.Players.FindPlayer(args[0]);
-
-            if (target == null)
-            {
-                player.Reply($"{Prefix} Could not find the specified player.");
-                return;
-            }
+            var iPlayerObj = GetValidPlayer(args, player);
+            if (iPlayerObj is bool) return;
+            var target = (IPlayer) iPlayerObj;
             
             if (_blockedLog[target.Id, "blocks"] == null)
             {
                 player.Reply($"{Prefix} <color=#32CD32>No Records</color> found for player.");
-                return;
+            }
+            else
+            {
+                player.Reply($"{Prefix} Found <color=#e63946>{_blockedLog[target.Id, "blocks"]}</color> blocked messages for player.");
             }
 
-            player.Reply($"{Prefix} Found <color=#e63946>{_blockedLog[target.Id, "blocks"]}</color> blocked messages for player.");
+            if (_blockedLog[target.Id, "banned"] == null || _blockedLog[target.Id, "banned"].ToString() == "False")
+            {
+                player.Reply($"{Prefix} Player is currently <color=#32CD32>not banned</color>.");
+            }
+            else
+            {
+                player.Reply($"{Prefix} Player is currently <color={Config["BlockMessageColor"]}>banned</color>.");
+            }
+
+            return;
         }
         
         #endregion
