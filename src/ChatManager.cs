@@ -23,7 +23,7 @@ namespace Oxide.Plugins
         
         #region log
 
-        private readonly DynamicConfigFile _blockedLog = Interface.Oxide.DataFileSystem.GetDatafile("BlockedData");
+        private readonly DynamicConfigFile _Data = Interface.Oxide.DataFileSystem.GetDatafile("ChatManager");
 
         #endregion
         
@@ -127,17 +127,17 @@ namespace Oxide.Plugins
 
         private void ReportBlockedChat(string playerid)
         {
-            if (_blockedLog[playerid] != null)
+            if (_Data[playerid] != null)
             {
-                if (_blockedLog[playerid, "blocks"].ToString() == "0") _blockedLog[playerid, "blocks"] = 1;
+                if (_Data[playerid, "blocks"].ToString() == "0") _Data[playerid, "blocks"] = 1;
                 
-                _blockedLog[playerid, "blocks"] = Int64.Parse(_blockedLog[playerid, "blocks"].ToString()) + 1;
+                _Data[playerid, "blocks"] = Int64.Parse(_Data[playerid, "blocks"].ToString()) + 1;
             }
             else
             {
-                _blockedLog[playerid, "blocks"] = 1;
+                _Data[playerid, "blocks"] = 1;
             }
-            _blockedLog.Save();
+            _Data.Save();
         }
         
         private string IsAllowedText(string text, string playerid)
@@ -158,7 +158,7 @@ namespace Oxide.Plugins
 
         private string IsMutedOrBanned(string playerid)
         {
-            var bannedStatus = _blockedLog[playerid, "banned"];
+            var bannedStatus = _Data[playerid, "banned"];
             if (bannedStatus == null)
             {
                 Puts("Player not banned");
@@ -232,8 +232,8 @@ namespace Oxide.Plugins
             if (iPlayerObj is bool) return;
             var target = (IPlayer) iPlayerObj;
             
-            _blockedLog[player.Id, "banned"] = true;
-            _blockedLog.Save();
+            _Data[player.Id, "banned"] = true;
+            _Data.Save();
             
             player.Reply($"{Prefix} Player: <color={Config["BlockMessageColor"]}>{target.Name}</color> - Has been banned from the chat");
         }
@@ -245,8 +245,8 @@ namespace Oxide.Plugins
             if (iPlayerObj is bool) return;
             var target = (IPlayer) iPlayerObj;
 
-            _blockedLog[player.Id, "banned"] = false;
-            _blockedLog.Save();
+            _Data[player.Id, "banned"] = false;
+            _Data.Save();
             
             player.Reply($"{Prefix} Player: <color=#32CD32>{target.Name}</color> - Has been unbanned from the chat");
         }
@@ -258,16 +258,16 @@ namespace Oxide.Plugins
             if (iPlayerObj is bool) return;
             var target = (IPlayer) iPlayerObj;
             
-            if (_blockedLog[target.Id, "blocks"] == null)
+            if (_Data[target.Id, "blocks"] == null)
             {
                 player.Reply($"{Prefix} <color=#32CD32>No Records</color> found for player.");
             }
             else
             {
-                player.Reply($"{Prefix} Found <color=#e63946>{_blockedLog[target.Id, "blocks"]}</color> blocked messages for player.");
+                player.Reply($"{Prefix} Found <color=#e63946>{_Data[target.Id, "blocks"]}</color> blocked messages for player.");
             }
 
-            if (_blockedLog[target.Id, "banned"] == null || _blockedLog[target.Id, "banned"].ToString() == "False")
+            if (_Data[target.Id, "banned"] == null || _Data[target.Id, "banned"].ToString() == "False")
             {
                 player.Reply($"{Prefix} Player is currently <color=#32CD32>not banned</color>.");
             }
