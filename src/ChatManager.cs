@@ -6,7 +6,7 @@ using Oxide.Core.Configuration;
 
 namespace Oxide.Plugins
 {
-    [Info("ChatManager", "Thias", "0.0.1")]
+    [Info("ChatManager", "Thias", "0.0.2")]
     [Description("Chat Manager; Moderates your chat and provides useful utilities")]
 
     public class ChatManager : CovalencePlugin 
@@ -17,13 +17,14 @@ namespace Oxide.Plugins
         {
             permission.RegisterPermission("ChatManager.stats", this);
             permission.RegisterPermission("ChatManager.ban", this);
+            permission.RegisterPermission("ChatManager.karma", this);
         }
         
         #endregion
         
         #region log
 
-        private readonly DynamicConfigFile _Data = Interface.Oxide.DataFileSystem.GetDatafile("ChatManager");
+        private readonly DynamicConfigFile _data = Interface.Oxide.DataFileSystem.GetDatafile("ChatManager");
 
         #endregion
         
@@ -78,6 +79,7 @@ namespace Oxide.Plugins
             Config["BlockMessageColor"] = "#e63946";
             Config["BlockedWords"] = new List<string>();
             Config["WhitelistedURLS"] = new List<string>();
+            Config["MinimumKarma"] = -50;
         }
         
         private void Loaded()
@@ -89,6 +91,7 @@ namespace Oxide.Plugins
         private void Unload()
         {
             Puts("Saving data...");
+            _data.Save();
         }
 
         #endregion
@@ -125,21 +128,26 @@ namespace Oxide.Plugins
             return containedUrl;
         }
 
+        private bool CheckPlayerKarma(string playerid)
+        {
+            return (int) _data[playerid, "karma"] <= (int) Config["MinimumKarma"];
+        }
+        
         private void ReportBlockedChat(string playerid)
         {
-            if (_Data[playerid] != null)
+            if (_data[playerid] != null)
             {
-                if (_Data[playerid, "blocks"].ToString() == "0") _Data[playerid, "blocks"] = 1;
+                if (_data[playerid, "blocks"].ToString() == "0") _data[playerid, "blocks"] = 1;
                 
-                _Data[playerid, "blocks"] = Int64.Parse(_Data[playerid, "blocks"].ToString()) + 1;
+                _data[playerid, "blocks"] = (int) _data[playerid, "blocks"] + 1;
             }
             else
             {
-                _Data[playerid, "blocks"] = 1;
+                _data[playerid, "blocks"] = 1;
             }
-            _Data.Save();
+            _data.Save();
         }
-        
+
         private string IsAllowedText(string text, string playerid)
         {
             if (ContainsBlockedWord(text.ToLower()))
@@ -153,12 +161,18 @@ namespace Oxide.Plugins
                 ReportBlockedChat(playerid);
                 return "Contains URL";
             }
+
+            if (CheckPlayerKarma(playerid))
+            {
+                ReportBlockedChat(playerid);
+                return "Too low karma";
+            }
             return "";
         }
 
         private string IsMutedOrBanned(string playerid)
         {
-            var bannedStatus = _Data[playerid, "banned"];
+            var bannedStatus = _data[playerid, "banned"];
             if (bannedStatus == null)
             {
                 Puts("Player not banned");
@@ -197,9 +211,37 @@ namespace Oxide.Plugins
             Puts($"Blocked chat from player: \"{player.Name}\" with reason: \"{reason}\"");
             player.Reply($"<color={Config["BlockMessageColor"]}>Your message has been blocked with reason: {reason}</color>");
         }
+
+        private void SetDefaultKarma(IPlayer player)
+        {
+            if (_data[player.Id, "karma"] != null) return;
+            
+            _data[player.Id, "karma"] = 0;
+            _data.Save();
+        }
+        
+        private void ControlKarma(IPlayer player, string action, int amount)
+        {
+            switch (action)
+            {
+                case "increase":
+                    _data[player.Id, "karma"] = (int) _data[player.Id, "karma"] + amount;
+                    _data.Save();
+                    break;
+                case "decrease":
+                    _data[player.Id, "karma"] = (int) _data[player.Id, "karma"] - amount;
+                    _data.Save();
+                    break;
+                default:
+                    Puts("Invalid karma action");
+                    break;
+            }
+        }
         
         #endregion
 
+        #region hooks
+        
         object OnUserChat(IPlayer player, string message)
         {
             if (IsCommand($"{message}")) return null;
@@ -211,6 +253,7 @@ namespace Oxide.Plugins
             if (isAllowed != "")
             {
                 ReplyBlockedWithReason(player, isAllowed);
+                ControlKarma(player, "decrease", 1);
                 return false;
             }
             if (isMutedOrBanned != "")
@@ -223,8 +266,28 @@ namespace Oxide.Plugins
 
         }
         
+        void OnUserConnected(IPlayer player)
+        {
+            SetDefaultKarma(player);
+        }
+
+        #endregion
+
         #region commands
 
+        [Command("cm.karma.reset"), Permission("ChatManager.karma")]
+        private void ResetPlayerKarma(IPlayer player, string command, string[] args)
+        {
+            var iPlayerObj = GetValidPlayer(args, player);
+            if (iPlayerObj is bool) return;
+            var target = (IPlayer) iPlayerObj;
+
+            _data[player.Id, "karma"] = 0;
+            _data.Save();
+            
+            player.Reply($"{Prefix} Reset karma for player: <color=#32CD32>{target.Name}</color>");
+        }
+        
         [Command("cm.ban"), Permission("ChatManager.ban")]
         private void BanPlayerCommand(IPlayer player, string command, string[] args)
         {
@@ -232,8 +295,16 @@ namespace Oxide.Plugins
             if (iPlayerObj is bool) return;
             var target = (IPlayer) iPlayerObj;
             
-            _Data[player.Id, "banned"] = true;
-            _Data.Save();
+            if ((bool) _data[player.Id, "banned"])
+            {
+                player.Reply($"{Prefix} Player: <color={Config["BlockMessageColor"]}>{target.Name}</color> - Is already banned from chat");
+                return;
+            }
+            
+            _data[player.Id, "banned"] = true;
+            _data.Save();
+            
+            ControlKarma(player, "decrease", 5);
             
             player.Reply($"{Prefix} Player: <color={Config["BlockMessageColor"]}>{target.Name}</color> - Has been banned from the chat");
         }
@@ -245,8 +316,16 @@ namespace Oxide.Plugins
             if (iPlayerObj is bool) return;
             var target = (IPlayer) iPlayerObj;
 
-            _Data[player.Id, "banned"] = false;
-            _Data.Save();
+            if (!(bool) _data[player.Id, "banned"])
+            {
+                player.Reply($"{Prefix} Player: <color=#32CD32>{target.Name}</color> - Is not banned from chat");
+                return;
+            }
+            
+            _data[player.Id, "banned"] = false;
+            _data.Save();
+            
+            ControlKarma(player, "increase", 2);
             
             player.Reply($"{Prefix} Player: <color=#32CD32>{target.Name}</color> - Has been unbanned from the chat");
         }
@@ -258,16 +337,16 @@ namespace Oxide.Plugins
             if (iPlayerObj is bool) return;
             var target = (IPlayer) iPlayerObj;
             
-            if (_Data[target.Id, "blocks"] == null)
+            if (_data[target.Id, "blocks"] == null)
             {
                 player.Reply($"{Prefix} <color=#32CD32>No Records</color> found for player.");
             }
             else
             {
-                player.Reply($"{Prefix} Found <color=#e63946>{_Data[target.Id, "blocks"]}</color> blocked messages for player.");
+                player.Reply($"{Prefix} Found <color=#e63946>{_data[target.Id, "blocks"]}</color> blocked messages for player.");
             }
 
-            if (_Data[target.Id, "banned"] == null || _Data[target.Id, "banned"].ToString() == "False")
+            if (_data[target.Id, "banned"] == null || _data[target.Id, "banned"].ToString() == "False")
             {
                 player.Reply($"{Prefix} Player is currently <color=#32CD32>not banned</color>.");
             }
