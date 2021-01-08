@@ -7,7 +7,7 @@ using System.Net;
 
 namespace Oxide.Plugins
 {
-    [Info("ChatManager", "Thias", "0.0.2")]
+    [Info("ChatManager", "Thias", "0.0.3")]
     [Description("Chat Manager; Moderates your chat and provides useful utilities")]
 
     public class ChatManager : CovalencePlugin 
