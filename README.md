@@ -1,4 +1,4 @@
-﻿# Oxide-ChatManager
+# Oxide-ChatManager
 
 Simple chat manager for [Oxide](https://umod.org/).
 
