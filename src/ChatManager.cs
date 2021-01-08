@@ -3,6 +3,7 @@ using Oxide.Core.Libraries.Covalence;
 using System.Collections.Generic;
 using Oxide.Core;
 using Oxide.Core.Configuration;
+using System.Net;
 
 namespace Oxide.Plugins
 {
@@ -55,7 +56,7 @@ namespace Oxide.Plugins
 
         private void LoadWhitelistedUrls()
         {
-            LogWarning("Trying to whitelisted URLs");
+            LogWarning("Trying load to whitelisted URLs");
             if (Config["WhitelistedURLS"] == null || Config["WhitelistedURLS"].ToString() == "") return;
 
             try
@@ -79,7 +80,8 @@ namespace Oxide.Plugins
             Config["BlockMessageColor"] = "#e63946";
             Config["BlockedWords"] = new List<string>();
             Config["WhitelistedURLS"] = new List<string>();
-            Config["MinimumKarma"] = -50;
+            Config["Karma", "minimum"] = -50;
+            Config["Karma", "WordWeight"] = new {};
         }
         
         private void Loaded()
@@ -103,6 +105,21 @@ namespace Oxide.Plugins
             return text.StartsWith("/");
         }
 
+        private int ContainsWeightedWord(string text)
+        {
+            var words = text.Split(' ');
+            var foundWordValue = 0;
+            Dictionary<string, object> dict = (Dictionary<string, object>) Config["Karma", "WordWeight"];
+            
+            foreach (var word in words)
+            {
+                if (dict.ContainsKey(word)) foundWordValue = (int) Config["Karma", "WordWeight", word];
+            }
+
+            Puts(foundWordValue.ToString());
+            return foundWordValue;
+        }
+        
         private bool ContainsBlockedWord(string text)
         {
             var words = text.Split(' ');
@@ -124,18 +141,18 @@ namespace Oxide.Plugins
                 if (_whitelistedUrls.Contains(word)) continue;
                 if (Uri.IsWellFormedUriString(word, UriKind.Absolute)) containedUrl = true;
             }
-
+            
             return containedUrl;
         }
 
         private bool CheckPlayerKarma(string playerid)
         {
-            return (int) _data[playerid, "karma"] <= (int) Config["MinimumKarma"];
+            return (int) _data[playerid, "karma"] <= (int) Config["Karma", "minimum"];
         }
         
         private void ReportBlockedChat(string playerid)
         {
-            if (_data[playerid] != null)
+            if (_data[playerid, "blocks"] != null)
             {
                 if (_data[playerid, "blocks"].ToString() == "0") _data[playerid, "blocks"] = 1;
                 
@@ -250,10 +267,21 @@ namespace Oxide.Plugins
 
             var isAllowed = IsAllowedText(message, player.Id);
 
+            var weightedWord = ContainsWeightedWord(message);
+            if (weightedWord != 0)
+            {
+                var positive = weightedWord > 0;
+                Puts(positive.ToString());
+                ControlKarma(player, positive ? "increase" : "decrease", positive ? weightedWord : weightedWord * -1);
+            }
+            
             if (isAllowed != "")
             {
                 ReplyBlockedWithReason(player, isAllowed);
-                ControlKarma(player, "decrease", 1);
+                
+                // If karma was not already adjusted
+                if (weightedWord == 0) ControlKarma(player, "decrease", 1);
+                
                 return false;
             }
             if (isMutedOrBanned != "")
